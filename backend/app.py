@@ -4,7 +4,6 @@ from functools import lru_cache
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-# Initialize Flask for the Web UI
 app = Flask(__name__)
 CORS(app)
 
@@ -12,6 +11,7 @@ CORS(app)
 # 1. ENVIRONMENT & RULES
 # ==========================================
 class WumpusEnvironment:
+    # FIXED: Replaced _init_ with __init__
     def __init__(self, n, grid_map):
         self.n = n
         self.wumpuses_start = []
@@ -32,7 +32,6 @@ class WumpusEnvironment:
                 elif ch == 'G':
                     self.goal = (r + 1, c + 1)
 
-        # Static breeze calculation
         for pr, pc in self.pits:
             for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 nr, nc = pr + dr, pc + dc
@@ -52,10 +51,11 @@ class WumpusEnvironment:
     def clamp(self, v):
         return max(1, min(self.n, v))
 
+    @lru_cache(maxsize=None)
     def get_wumpus_pos_at_clock(self, wid, clock):
         s = self.wumpuses_start[wid]
         r, c = s['r'], s['c']
-        for t in range(clock):
+        for t in range(max(0, clock)):
             for d, steps in self.get_move_sequence(r, t):
                 for _ in range(steps):
                     c += d
@@ -79,19 +79,70 @@ class WumpusEnvironment:
         return d
 
 # ==========================================
-# 2. SOLVER (Dijkstra's Algorithm)
+# 2. SOLVER (Exhaustive DFS for N <= 7)
 # ==========================================
-DIRS = [(-1, 0), (0, -1), (0, 1), (1, 0)]  # Lexicographic Order
+class DFSSolver:
+    # FIXED: Replaced _init_ with __init__
+    def __init__(self, env):
+        self.env = env
+        self.best_cost = float('inf')
+        self.best_path = []
 
+    def solve(self):
+        wp0 = self.env.wumpus_set(0)
+        init_sc = 1 if self.env.is_stench(1, 1, wp0) else 0
+        self._dfs(1, 1, 0, init_sc, ((1, 1),))
+        
+        if self.best_cost == float('inf'):
+            return "UNSAFE", 0, []
+        return "SAFE", self.best_cost, self.best_path
+
+    def _dfs(self, r, c, cost, sc, path):
+        # Goal reached
+        if (r, c) == self.env.goal:
+            if cost < self.best_cost:
+                self.best_cost = cost
+                self.best_path = list(path)
+            return
+
+        # Directions: Lexicographical order
+        for dr, dc in [(-1, 0), (0, -1), (0, 1), (1, 0)]:
+            nr, nc = r + dr, c + dc
+            
+            if not (1 <= nr <= self.env.n and 1 <= nc <= self.env.n): continue
+            if (nr, nc) in path: continue
+
+            delta = self.env.cell_delta(nr, nc)
+            new_cost = cost + delta
+            
+            w_clock = max(0, new_cost)
+            if w_clock >= self.env.max_turns: continue
+
+            wp = self.env.wumpus_set(w_clock)
+            is_goal = (nr, nc) == self.env.goal
+            
+            if (nr, nc) in wp and not is_goal: continue
+
+            new_sc = sc
+            if not is_goal and self.env.is_stench(nr, nc, wp):
+                new_sc += 1
+
+            if new_sc >= 3: continue
+
+            # Recurse
+            self._dfs(nr, nc, new_cost, new_sc, path + ((nr, nc),))
+
+# ==========================================
+# 3. SOLVER (Dijkstra for N > 7)
+# ==========================================
 def solve_dijkstra(env):
-    pq = []
     wp0 = env.wumpus_set(0)
     init_sc = 1 if env.is_stench(1, 1, wp0) else 0
-    heapq.heappush(pq, (0, ((1, 1),), 1, 1, init_sc, 0))
+    pq = [(0, ((1, 1),), 1, 1, init_sc)]
     visited = {}
 
     while pq:
-        cost, path_tup, r, c, sc, w_clock = heapq.heappop(pq)
+        cost, path_tup, r, c, sc = heapq.heappop(pq)
         
         if (r, c) == env.goal:
             return "SAFE", cost, list(path_tup)
@@ -101,37 +152,34 @@ def solve_dijkstra(env):
             continue
         visited[state_key] = cost
 
-        for dr, dc in DIRS:
+        for dr, dc in [(-1, 0), (0, -1), (0, 1), (1, 0)]:
             nr, nc = r + dr, c + dc
             if not (1 <= nr <= env.n and 1 <= nc <= env.n): continue
             if (nr, nc) in path_tup: continue
 
             delta = env.cell_delta(nr, nc)
-            new_cost = max(0, cost + delta)
-            new_clock = new_cost 
+            new_cost = cost + delta
+            w_clock = max(0, new_cost)
 
-            if new_clock >= env.max_turns: continue
+            if w_clock >= env.max_turns: continue
 
-            wp = env.wumpus_set(new_clock)
+            wp = env.wumpus_set(w_clock)
             is_goal = (nr, nc) == env.goal
             
-            if (nr, nc) in wp and not is_goal:
-                continue
+            if (nr, nc) in wp and not is_goal: continue
 
-            if is_goal:
-                new_sc = sc
-            else:
-                new_sc = sc + (1 if env.is_stench(nr, nc, wp) else 0)
+            new_sc = sc
+            if not is_goal and env.is_stench(nr, nc, wp):
+                new_sc += 1
 
             if new_sc >= 3: continue
 
-            new_path_tup = path_tup + ((nr, nc),)
-            heapq.heappush(pq, (new_cost, new_path_tup, nr, nc, new_sc, new_clock))
+            heapq.heappush(pq, (new_cost, path_tup + ((nr, nc),), nr, nc, new_sc))
 
     return "UNSAFE", 0, []
 
 # ==========================================
-# 3. WEB API ROUTE (Talks to the Frontend)
+# 4. FLASK API (Connects to Website)
 # ==========================================
 @app.route('/solve', methods=['POST'])
 def solve_api():
@@ -141,9 +189,13 @@ def solve_api():
         grid = [line.split() for line in raw[1:n+1]]
         
         env = WumpusEnvironment(n, grid)
-        env.get_wumpus_pos_at_clock = lru_cache(maxsize=None)(env.get_wumpus_pos_at_clock)
         
-        status, final_cost, final_path = solve_dijkstra(env)
+        # Hybrid Plan: DFS for small grids, Dijkstra for large ones
+        if n <= 7:
+            solver = DFSSolver(env)
+            status, final_cost, final_path = solver.solve()
+        else:
+            status, final_cost, final_path = solve_dijkstra(env)
         
         if status == "UNSAFE": 
             return jsonify({"status": "UNSAFE"})
@@ -157,11 +209,11 @@ def solve_api():
             
             wp_set = env.wumpus_set(t_acc)
             w_pos = [{"id": f"W{idx+1}", "position": list(env.get_wumpus_pos_at_clock(idx, t_acc))} for idx in range(len(env.wumpuses_start))]
-            stenches = [[wr+dr, wc+dc] for wr, wc in wp_set for dr, dc in DIRS]
+            
+            # Using standard Up, Left, Right, Down logic to draw stench fields
+            stenches = [[wr+dr, wc+dc] for wr, wc in wp_set for dr, dc in [(-1, 0), (0, -1), (0, 1), (1, 0)]]
             
             msg = f"Moved to ({r},{c}). Time: {t_acc}s" if i > 0 else "Agent starts."
-            
-            # Recalculate stench for the HUD log
             current_sc = 0 if (r, c) == env.goal else (1 if env.is_stench(r, c, wp_set) else 0)
 
             frames.append({
@@ -184,5 +236,6 @@ def solve_api():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
+# FIXED: Replaced _main_ with __main__
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
