@@ -92,7 +92,7 @@ class DFSSolver:
         wp0 = self.env.wumpus_set(0)
         init_sc = 1 if self.env.is_stench(1, 1, wp0) else 0
         self._dfs(1, 1, 0, init_sc, ((1, 1),))
-        
+
         if self.best_cost == float('inf'):
             return "UNSAFE", 0, []
         return "SAFE", self.best_cost, self.best_path
@@ -108,19 +108,19 @@ class DFSSolver:
         # Directions: Lexicographical order
         for dr, dc in [(-1, 0), (0, -1), (0, 1), (1, 0)]:
             nr, nc = r + dr, c + dc
-            
+
             if not (1 <= nr <= self.env.n and 1 <= nc <= self.env.n): continue
             if (nr, nc) in path: continue
 
             delta = self.env.cell_delta(nr, nc)
             new_cost = cost + delta
-            
+
             w_clock = max(0, new_cost)
             if w_clock >= self.env.max_turns: continue
 
             wp = self.env.wumpus_set(w_clock)
             is_goal = (nr, nc) == self.env.goal
-            
+
             if (nr, nc) in wp and not is_goal: continue
 
             new_sc = sc
@@ -143,7 +143,7 @@ def solve_dijkstra(env):
 
     while pq:
         cost, path_tup, r, c, sc = heapq.heappop(pq)
-        
+
         if (r, c) == env.goal:
             return "SAFE", cost, list(path_tup)
 
@@ -165,7 +165,7 @@ def solve_dijkstra(env):
 
             wp = env.wumpus_set(w_clock)
             is_goal = (nr, nc) == env.goal
-            
+
             if (nr, nc) in wp and not is_goal: continue
 
             new_sc = sc
@@ -187,32 +187,32 @@ def solve_api():
         raw = request.get_data(as_text=True).strip().splitlines()
         n = int(raw[0].strip())
         grid = [line.split() for line in raw[1:n+1]]
-        
+
         env = WumpusEnvironment(n, grid)
-        
+
         # Hybrid Plan: DFS for small grids, Dijkstra for large ones
         if n <= 7:
             solver = DFSSolver(env)
             status, final_cost, final_path = solver.solve()
         else:
             status, final_cost, final_path = solve_dijkstra(env)
-        
+
         if status == "UNSAFE": 
             return jsonify({"status": "UNSAFE"})
-        
+
         # Build animation frames for the Web UI
         frames = []
         t_acc = 0
         for i, (r, c) in enumerate(final_path):
             if i > 0: 
                 t_acc = max(0, t_acc + env.cell_delta(r, c))
-            
+
             wp_set = env.wumpus_set(t_acc)
             w_pos = [{"id": f"W{idx+1}", "position": list(env.get_wumpus_pos_at_clock(idx, t_acc))} for idx in range(len(env.wumpuses_start))]
-            
+
             # Using standard Up, Left, Right, Down logic to draw stench fields
             stenches = [[wr+dr, wc+dc] for wr, wc in wp_set for dr, dc in [(-1, 0), (0, -1), (0, 1), (1, 0)]]
-            
+
             msg = f"Moved to ({r},{c}). Time: {t_acc}s" if i > 0 else "Agent starts."
             current_sc = 0 if (r, c) == env.goal else (1 if env.is_stench(r, c, wp_set) else 0)
 

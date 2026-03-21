@@ -1,3 +1,4 @@
+
 const AppState = { data: null, currentFrame: 0, isPlaying: false, timer: null };
 
 document.getElementById('btnSolve').onclick = async () => {
@@ -10,7 +11,7 @@ document.getElementById('btnSolve').onclick = async () => {
     try {
         const response = await fetch('http://127.0.0.1:5000/solve', { method: 'POST', body: text });
         const data = await response.json();
-        
+
         if (data.status === 'UNSAFE') {
             badge.textContent = 'UNSAFE'; badge.className = 'status unsafe';
             document.getElementById('gridWrapper').style.display = 'none';
@@ -29,24 +30,24 @@ document.getElementById('btnSolve').onclick = async () => {
 function buildGrid() {
     const { gridSize, staticElements } = AppState.data;
     const table = document.getElementById('gridTable');
-    
+
     // Auto-scale grid sizes
     const avail = Math.min(document.querySelector('.grid-panel').clientWidth - 40, document.querySelector('.grid-panel').clientHeight - 40);
     const cs = Math.max(Math.min(Math.floor(avail / gridSize) - 2, 72), 24);
     document.documentElement.style.setProperty('--cell-size', `${cs}px`);
-    
+
     table.style.gridTemplateColumns = `repeat(${gridSize}, var(--cell-size))`;
     table.innerHTML = '';
-    
+
     for (let r = 1; r <= gridSize; r++) {
         for (let c = 1; c <= gridSize; c++) {
             const cell = document.createElement('div');
             cell.className = 'cell';
             cell.id = `cell-${r}-${c}`;
-            
+
             // Add tiny coordinate numbers
             cell.innerHTML = `<span style="position:absolute; top:2px; left:4px; font-size:10px; color:#555; pointer-events:none; font-family: monospace;">${r},${c}</span>`;
-            
+
             if (r === staticElements.gold[0] && c === staticElements.gold[1]) { cell.innerHTML += 'G'; cell.classList.add('gold'); }
             staticElements.pits.forEach(p => { if(p[0]===r && p[1]===c) { cell.innerHTML += 'P'; cell.classList.add('pit'); } });
             staticElements.timeZones.forEach(t => { if(t[0]===r && t[1]===c) { cell.innerHTML += 'T'; cell.classList.add('time'); } });
@@ -76,7 +77,7 @@ function renderFrame(idx) {
     // Entities
     const layer = document.getElementById('entityLayer');
     layer.innerHTML = '';
-    
+
     const draw = (char, pos, cls) => {
         const div = document.createElement('div');
         div.className = `entity ${cls}`; div.innerHTML = char;
