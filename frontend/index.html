@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Wumpus Pathfinder // Visualization Engine</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="layout">
+    <div class="panel">
+      <h2>RAW GRID DATA</h2>
+      <textarea id="gridInput" spellcheck="false">7
+. . T . W . T
+. . . . W . .
+. . . . . W .
+. . . . . . .
+. . P . . . G
+T . . . . W .
+T T . . . . W</textarea>
+      <button id="btnSolve" class="primary-btn">⚡ LOAD & SOLVE</button>
+      <div id="statusBadge" class="status idle">IDLE</div>
+      
+      <div class="legend">
+        <h3>LEGEND</h3>
+        <div class="leg-item"><span class="icon agent-icon">A</span> Agent</div>
+        <div class="leg-item"><span class="icon wumpus-icon">W</span> Wumpus</div>
+        <div class="leg-item"><span class="icon gold-icon">G</span> Gold</div>
+        <div class="leg-item"><span class="icon pit-icon">P</span> Pit (+5s)</div>
+        <div class="leg-item"><span class="icon time-icon">T</span> Time Zone (-3s)</div>
+        <div class="leg-item"><span class="icon stench-icon"></span> Stench Field</div>
+        <div class="leg-item"><span class="icon breeze-icon"></span> Breeze Field</div>
+      </div>
+    </div>
+
+    <div class="panel grid-panel">
+      <div id="emptyState" class="empty-state">No grid loaded. Paste data and solve.</div>
+      <div id="gridWrapper" class="grid-wrapper" style="display: none;">
+        <div id="gridTable" class="grid-table"></div>
+        <div id="entityLayer" class="entity-layer"></div>
+      </div>
+    </div>
+
+    <div class="panel hud-panel">
+      <h2>ANALYTICS HUD</h2>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">TURN</div>
+          <div class="stat-value" id="hudTurn">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">TIME COST</div>
+          <div class="stat-value" id="hudTime">0</div>
+        </div>
+        <div class="stat-box wide">
+          <div class="stat-label">STENCH ENCOUNTERED</div>
+          <div class="stat-value warn" id="hudStench">0 / 3</div>
+        </div>
+      </div>
+      
+      <h3>PLAYBACK</h3>
+      <div class="controls">
+        <button id="btnPrev" disabled>⏪ Prev</button>
+        <button id="btnPlay" disabled>▶ Play</button>
+        <button id="btnNext" disabled>Next ⏩</button>
+      </div>
+      
+      <h3>EVENT LOG</h3>
+      <div id="logBox" class="log-box"></div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
