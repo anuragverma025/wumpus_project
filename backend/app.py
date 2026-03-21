@@ -1,15 +1,16 @@
 import sys
-import math
+import heapq
 from functools import lru_cache
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-sys.setrecursionlimit(10000)
-
+# Initialize Flask for the Web UI
 app = Flask(__name__)
 CORS(app)
 
-# --- Your Core Environment & Algorithm ---
+# ==========================================
+# 1. ENVIRONMENT & RULES
+# ==========================================
 class WumpusEnvironment:
     def __init__(self, n, grid_map):
         self.n = n
@@ -18,174 +19,168 @@ class WumpusEnvironment:
         self.time_zones = set()
         self.goal = None
         self.breeze_cells = set()
-        
+
         for r in range(n):
             for c in range(n):
-                char = grid_map[r][c]
-                if char == 'W': self.wumpuses_start.append({'id': len(self.wumpuses_start), 'r': r+1, 'c': c+1}) 
-                elif char == 'P': self.pits.add((r+1, c+1))
-                elif char == 'T': self.time_zones.add((r+1, c+1))
-                elif char == 'G': self.goal = (r+1, c+1)
+                ch = grid_map[r][c]
+                if ch == 'W':
+                    self.wumpuses_start.append({'id': len(self.wumpuses_start), 'r': r + 1, 'c': c + 1})
+                elif ch == 'P':
+                    self.pits.add((r + 1, c + 1))
+                elif ch == 'T':
+                    self.time_zones.add((r + 1, c + 1))
+                elif ch == 'G':
+                    self.goal = (r + 1, c + 1)
 
+        # Static breeze calculation
         for pr, pc in self.pits:
-            for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 nr, nc = pr + dr, pc + dc
-                if 1 <= nr <= n and 1 <= nc <= n: self.breeze_cells.add((nr, nc))
+                if 1 <= nr <= n and 1 <= nc <= n:
+                    self.breeze_cells.add((nr, nc))
+
         self.max_turns = 4 * n * n
 
     def get_move_sequence(self, row, turn_idx):
-        is_even = (row % 2 == 0)
-        is_turn_a = (turn_idx % 2 == 0) 
-        if is_even: return [(1, 3), (-1, 1)] if is_turn_a else [(1, 1), (-1, 3)]
-        else: return [(-1, 3), (1, 1)] if is_turn_a else [(-1, 1), (1, 3)]
+        even = (row % 2 == 0)
+        turn_a = (turn_idx % 2 == 0)
+        if even:
+            return [(1, 3), (-1, 1)] if turn_a else [(1, 1), (-1, 3)]
+        else:
+            return [(-1, 3), (1, 1)] if turn_a else [(-1, 1), (1, 3)]
 
-    def clamp(self, val): return max(1, min(self.n, val))
+    def clamp(self, v):
+        return max(1, min(self.n, v))
 
-    def get_wumpus_pos_at_clock(self, wumpus_id, clock):
-        start = self.wumpuses_start[wumpus_id]
-        r, c = start['r'], start['c']
+    def get_wumpus_pos_at_clock(self, wid, clock):
+        s = self.wumpuses_start[wid]
+        r, c = s['r'], s['c']
         for t in range(clock):
-            moves = self.get_move_sequence(r, t)
-            for direction, steps in moves:
+            for d, steps in self.get_move_sequence(r, t):
                 for _ in range(steps):
-                    c += direction
+                    c += d
                     c = self.clamp(c)
         return (r, c)
 
-    def is_stench(self, r, c, wumpus_positions_set):
-        for wr, wc in wumpus_positions_set:
-            if abs(wr - r) + abs(wc - c) == 1: return True
-        return False
+    def wumpus_set(self, clock):
+        return frozenset(
+            self.get_wumpus_pos_at_clock(i, clock)
+            for i in range(len(self.wumpuses_start))
+        )
 
-def solve_wumpus_rbfs_reset(env):
-    goal = env.goal
-    n = env.n
-    neighbor_offsets = [(-1, 0), (0, -1), (0, 1), (1, 0)]
+    def is_stench(self, r, c, wp_set):
+        return any(abs(wr - r) + abs(wc - c) == 1 for wr, wc in wp_set)
 
-    def get_successors(r, c, wumpus_clock, stench, cost, path_set):
-        succ = []
-        for dr, dc in neighbor_offsets:
+    def cell_delta(self, r, c):
+        d = 1
+        if (r, c) in self.pits: d += 5
+        if (r, c) in self.breeze_cells: d += 2
+        if (r, c) in self.time_zones: d -= 3
+        return d
+
+# ==========================================
+# 2. SOLVER (Dijkstra's Algorithm)
+# ==========================================
+DIRS = [(-1, 0), (0, -1), (0, 1), (1, 0)]  # Lexicographic Order
+
+def solve_dijkstra(env):
+    pq = []
+    wp0 = env.wumpus_set(0)
+    init_sc = 1 if env.is_stench(1, 1, wp0) else 0
+    heapq.heappush(pq, (0, ((1, 1),), 1, 1, init_sc, 0))
+    visited = {}
+
+    while pq:
+        cost, path_tup, r, c, sc, w_clock = heapq.heappop(pq)
+        
+        if (r, c) == env.goal:
+            return "SAFE", cost, list(path_tup)
+
+        state_key = (r, c, sc)
+        if state_key in visited and visited[state_key] <= cost:
+            continue
+        visited[state_key] = cost
+
+        for dr, dc in DIRS:
             nr, nc = r + dr, c + dc
-            if not (1 <= nr <= n and 1 <= nc <= n): continue
-            if (nr, nc) in path_set: continue
-            
-            delta = 1
-            if (nr, nc) in env.pits: delta += 5
-            if (nr, nc) in env.breeze_cells: delta += 2
-            if (nr, nc) in env.time_zones: delta -= 3
+            if not (1 <= nr <= env.n and 1 <= nc <= env.n): continue
+            if (nr, nc) in path_tup: continue
+
+            delta = env.cell_delta(nr, nc)
             new_cost = max(0, cost + delta)
+            new_clock = new_cost 
+
+            if new_clock >= env.max_turns: continue
+
+            wp = env.wumpus_set(new_clock)
+            is_goal = (nr, nc) == env.goal
             
-            next_wumpus_clock = 0 if new_cost == 0 else wumpus_clock + 1
-            if next_wumpus_clock >= env.max_turns: continue
+            if (nr, nc) in wp and not is_goal:
+                continue
 
-            wumpus_positions = set()
-            for i in range(len(env.wumpuses_start)):
-                wumpus_positions.add(env.get_wumpus_pos_at_clock(i, next_wumpus_clock))
+            if is_goal:
+                new_sc = sc
+            else:
+                new_sc = sc + (1 if env.is_stench(nr, nc, wp) else 0)
 
-            if (nr, nc) in wumpus_positions and (nr, nc) != goal: continue
-            new_stench = stench + (1 if env.is_stench(nr, nc, wumpus_positions) else 0)
-            if new_stench >= 3: continue
+            if new_sc >= 3: continue
 
-            succ.append({'r': nr, 'c': nc, 'w_clock': next_wumpus_clock, 'stench': new_stench, 'cost': new_cost, 'f': new_cost })
-        return succ
+            new_path_tup = path_tup + ((nr, nc),)
+            heapq.heappush(pq, (new_cost, new_path_tup, nr, nc, new_sc, new_clock))
 
-    def rbfs(r, c, w_clock, stench, cost, path, path_set, f_limit):
-        if (r, c) == goal: return (path, cost, "SUCCESS")
-        successors = get_successors(r, c, w_clock, stench, cost, path_set)
-        if not successors: return (None, float('inf'), "FAILURE")
-        successors.sort(key=lambda x: (x['f'], x['r'], x['c']))
+    return "UNSAFE", 0, []
 
-        while True:
-            best = successors[0]
-            if best['f'] > f_limit: return (None, best['f'], "FAILURE")
-            alt_f = successors[1]['f'] if len(successors) > 1 else float('inf')
-            new_path_set = path_set.copy()
-            new_path_set.add((best['r'], best['c']))
-            
-            result_path, result_cost, result_status = rbfs(best['r'], best['c'], best['w_clock'], best['stench'], best['cost'], path + [(best['r'], best['c'])], new_path_set, min(f_limit, alt_f))
-            if result_status == "SUCCESS": return (result_path, result_cost, "SUCCESS")
-            best['f'] = result_cost
-            successors.sort(key=lambda x: (x['f'], x['r'], x['c']))
-
-    env.get_wumpus_pos_at_clock = lru_cache(maxsize=None)(env.get_wumpus_pos_at_clock)
-    final_path, final_cost, status = rbfs(1, 1, 0, 0, 0, [(1, 1)], {(1, 1)}, float('inf'))
-    if status == "SUCCESS": return "SAFE", final_cost, final_path
-    else: return "UNSAFE", 0, []
-
-# --- JSON Payload Translation Layer ---
-def build_payload(env, status, final_cost, final_path):
-    if status == "UNSAFE":
-        return { "status": "UNSAFE" }
-
-    frames = []
-    curr_time = 0
-    w_clock = 0
-    stench_count = 0
-
-    for turn, (r, c) in enumerate(final_path):
-        if turn > 0:
-            delta = 1
-            if (r, c) in env.pits: delta += 5
-            if (r, c) in env.breeze_cells: delta += 2
-            if (r, c) in env.time_zones: delta -= 3
-            curr_time = max(0, curr_time + delta)
-            w_clock = 0 if curr_time == 0 else w_clock + 1
-
-        wumpuses = []
-        wumpus_positions = set()
-        for w in env.wumpuses_start:
-            pos = env.get_wumpus_pos_at_clock(w['id'], w_clock)
-            wumpuses.append({"id": f"W{w['id']+1}", "position": list(pos)})
-            wumpus_positions.add(pos)
-
-        stenches = []
-        for wr, wc in wumpus_positions:
-            for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
-                nr, nc = wr + dr, wc + dc
-                if 1 <= nr <= env.n and 1 <= nc <= env.n:
-                    stenches.append([nr, nc])
-
-        if turn > 0 and env.is_stench(r, c, wumpus_positions):
-            stench_count = min(3, stench_count + 1)
-
-        msg = "Agent starts at (1,1)." if turn == 0 else f"Move to ({r},{c}). Cost: +{curr_time}s total."
-        if (r, c) in env.pits: msg = f"⚠️ Pit at ({r},{c})! +5s penalty."
-        elif (r, c) in env.time_zones: msg = f"⏳ Time Zone at ({r},{c})! -3s."
-        if (r, c) == env.goal: msg = f"🏆 GOLD REACHED! Final Time: {curr_time}s"
-
-        frames.append({
-            "turn": turn,
-            "agent": { "position": [r, c], "accumulatedTime": curr_time, "stenchCount": stench_count },
-            "wumpuses": wumpuses,
-            "activeStenches": stenches,
-            "logMessage": msg
-        })
-
-    return {
-        "status": "SAFE",
-        "gridSize": env.n,
-        "staticElements": {
-            "start": [1, 1], "gold": list(env.goal),
-            "pits": [list(p) for p in env.pits], "timeZones": [list(t) for t in env.time_zones]
-        },
-        "summary": { "totalTime": final_cost, "stenchEncountered": stench_count, "optimalPath": [list(p) for p in final_path] },
-        "animationFrames": frames
-    }
-
-# --- API Route ---
+# ==========================================
+# 3. WEB API ROUTE (Talks to the Frontend)
+# ==========================================
 @app.route('/solve', methods=['POST'])
 def solve_api():
     try:
-        data = request.get_data(as_text=True)
-        lines = [line.strip() for line in data.strip().splitlines() if line.strip()]
-        n = int(lines[0])
-        grid_map = [line.split() for line in lines[1:n+1]]
+        raw = request.get_data(as_text=True).strip().splitlines()
+        n = int(raw[0].strip())
+        grid = [line.split() for line in raw[1:n+1]]
         
-        env = WumpusEnvironment(n, grid_map)
-        status, final_cost, final_path = solve_wumpus_rbfs_reset(env)
-        payload = build_payload(env, status, final_cost, final_path)
+        env = WumpusEnvironment(n, grid)
+        env.get_wumpus_pos_at_clock = lru_cache(maxsize=None)(env.get_wumpus_pos_at_clock)
         
-        return jsonify(payload)
+        status, final_cost, final_path = solve_dijkstra(env)
+        
+        if status == "UNSAFE": 
+            return jsonify({"status": "UNSAFE"})
+        
+        # Build animation frames for the Web UI
+        frames = []
+        t_acc = 0
+        for i, (r, c) in enumerate(final_path):
+            if i > 0: 
+                t_acc = max(0, t_acc + env.cell_delta(r, c))
+            
+            wp_set = env.wumpus_set(t_acc)
+            w_pos = [{"id": f"W{idx+1}", "position": list(env.get_wumpus_pos_at_clock(idx, t_acc))} for idx in range(len(env.wumpuses_start))]
+            stenches = [[wr+dr, wc+dc] for wr, wc in wp_set for dr, dc in DIRS]
+            
+            msg = f"Moved to ({r},{c}). Time: {t_acc}s" if i > 0 else "Agent starts."
+            
+            # Recalculate stench for the HUD log
+            current_sc = 0 if (r, c) == env.goal else (1 if env.is_stench(r, c, wp_set) else 0)
+
+            frames.append({
+                "turn": i,
+                "agent": {"position": [r, c], "accumulatedTime": t_acc, "stenchCount": current_sc}, 
+                "wumpuses": w_pos,
+                "activeStenches": stenches,
+                "logMessage": msg
+            })
+
+        return jsonify({
+            "status": "SAFE",
+            "gridSize": n,
+            "staticElements": {
+                "start": [1, 1], "gold": list(env.goal) if env.goal else [],
+                "pits": [list(p) for p in env.pits], "timeZones": [list(t) for t in env.time_zones]
+            },
+            "animationFrames": frames
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 

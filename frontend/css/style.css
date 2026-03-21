@@ -1,10 +1,17 @@
 :root {
-  --bg-main: #0d1117; --bg-panel: #161b22; --border: #30363d;
-  --cyan: #00d4ff; --green: #00ff8c; --red: #ff4444; --amber: #ffb800;
-  --cell-size: 50px; --cell-gap: 2px;
+  --bg-main: #0d1117; 
+  --bg-panel: #161b22; 
+  --border: #30363d;
+  --cyan: #00d4ff; 
+  --green: #00ff8c; 
+  --red: #ff4444; 
+  --amber: #ffb800;
+  --cell-size: 45px; 
+  --cell-gap: 2px;
 }
 
-* { box-sizing: border-box; font-family: 'Courier New', monospace; color: #c9d1d9; margin: 0; padding: 0; }
+/* Sci-Fi Font applied globally */
+* { box-sizing: border-box; font-family: 'Share Tech Mono', monospace; color: #c9d1d9; margin: 0; padding: 0; }
 body { background: var(--bg-main); padding: 20px; height: 100vh; display: flex; flex-direction: column; }
 
 h2, h3 { color: var(--cyan); margin-bottom: 12px; font-size: 14px; letter-spacing: 1px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
@@ -41,8 +48,20 @@ textarea:focus { border-color: var(--cyan); }
 .cell.gold { color: gold; text-shadow: 0 0 10px gold; border-color: rgba(255,215,0,0.5); box-shadow: inset 0 0 15px rgba(255,215,0,0.2); }
 .cell.pit { color: purple; background: #1a1025; }
 .cell.time { color: #b452ff; border-color: rgba(180,82,255,0.4); }
-.cell.breeze-active { border-color: rgba(173,216,230,0.6); box-shadow: inset 0 0 12px rgba(173,216,230,0.2); }
-.cell.stench-active { border-color: rgba(0,255,140,0.6); box-shadow: inset 0 0 20px rgba(0,255,140,0.3); }
+
+/* Pulsing Animations for Hazards */
+@keyframes stenchPulse {
+  0% { box-shadow: inset 0 0 10px rgba(0,255,140,0.2); border-color: rgba(0,255,140,0.4); }
+  50% { box-shadow: inset 0 0 25px rgba(0,255,140,0.5); border-color: rgba(0,255,140,0.8); }
+  100% { box-shadow: inset 0 0 10px rgba(0,255,140,0.2); border-color: rgba(0,255,140,0.4); }
+}
+@keyframes breezePulse {
+  0% { box-shadow: inset 0 0 5px rgba(173,216,230,0.1); border-color: rgba(173,216,230,0.3); }
+  50% { box-shadow: inset 0 0 15px rgba(173,216,230,0.3); border-color: rgba(173,216,230,0.8); }
+  100% { box-shadow: inset 0 0 5px rgba(173,216,230,0.1); border-color: rgba(173,216,230,0.3); }
+}
+.cell.stench-active { animation: stenchPulse 2s infinite ease-in-out; }
+.cell.breeze-active { animation: breezePulse 3s infinite ease-in-out; }
 
 /* Entities */
 .entity-layer { position: absolute; inset: 0; pointer-events: none; }
